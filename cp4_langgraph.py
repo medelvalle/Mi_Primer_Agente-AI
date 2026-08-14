@@ -441,7 +441,26 @@ grafo = constructor.compile()
 print("=" * 79)
 print("EL GRAFO")
 print("=" * 79)
-print(grafo.get_graph().draw_ascii())
+print("""
+          START
+            |
+            v
+       +---------+   pide herramientas y le quedan vueltas
+       | modelo  | ------------------------------------+
+       +---------+                                     |
+         |     |  ya no pide nada                      v
+         |     +--------------------> END       +--------------+
+         |                                      | herramientas |
+         |  pide herramientas pero              +--------------+
+         |  ya no le quedan vueltas                    |
+         v                                             |
+   +-------------+                                     |
+   | sin_vueltas | --> END        el ciclo: <----------+
+   +-------------+                (esto era el `while`)
+""")
+# Si quieres el diagrama que LangGraph genera solo:
+#     print(grafo.get_graph().draw_mermaid())
+# Devuelve texto en formato Mermaid, que se pega en https://mermaid.live
 
 print("=" * 79)
 print("CORRIENDO")
