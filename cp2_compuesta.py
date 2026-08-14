@@ -30,8 +30,13 @@ MODELO_EMBEDDINGS = "gemini-embedding-001"
 DIMENSIONES = 768
 
 # Si el mejor fragmento no llega a este parecido, decimos que no sabemos.
-# El número salió de medir preguntas dentro y fuera del corpus, no de adivinar.
-UMBRAL_SIMILITUD = 0.62
+# El número está medido, no adivinado: con 10 preguntas dentro del corpus y 8 fuera,
+# las de dentro puntuaron entre 0.718 y 0.813, y las claramente ajenas por debajo de
+# 0.66. En medio quedan las preguntas que SUENAN a Instituto pero no están escritas
+# en ningún documento ("¿tienen convenio con la UNAM?" da 0.714). Ningún umbral las
+# separa bien; preferimos dejarlas pasar y que el modelo, que ve la fuente y el score
+# de cada fragmento, diga que eso no está documentado.
+UMBRAL_SIMILITUD = 0.68
 
 cliente = Groq(api_key=os.environ["GROQ_API_KEY"])
 cliente_gemini = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
@@ -128,7 +133,7 @@ def calcular_costo(codigo_curso, modalidad, tipo_beca=None):
 
     lineas = [
         f"{codigo} — {curso['nombre']} ({etiqueta_modalidad})",
-        f"  Precio base            ${base:>9,.2f}",
+        f"  {'Precio base':<34} ${base:>9,.2f}",
     ]
 
     descuento = 0.0
@@ -144,19 +149,17 @@ def calcular_costo(codigo_curso, modalidad, tipo_beca=None):
             )
         else:
             descuento = base * beca["porcentaje"]
-            lineas.append(
-                f"  {beca['nombre']} ({beca['porcentaje']:.0%})".ljust(25)
-                + f"-${descuento:>9,.2f}"
-            )
+            etiqueta_beca = f"{beca['nombre']} ({beca['porcentaje']:.0%})"
+            lineas.append(f"  {etiqueta_beca:<34}-${descuento:>9,.2f}")
 
     subtotal = base - descuento
     impuesto = subtotal * IVA
     total = subtotal + impuesto
 
-    lineas.append(f"  Subtotal               ${subtotal:>9,.2f}")
-    lineas.append(f"  IVA ({IVA:.0%})               ${impuesto:>9,.2f}")
-    lineas.append("  " + "─" * 31)
-    lineas.append(f"  TOTAL A PAGAR          ${total:>9,.2f}")
+    lineas.append(f"  {'Subtotal':<34} ${subtotal:>9,.2f}")
+    lineas.append(f"  {f'IVA ({IVA:.0%})':<34} ${impuesto:>9,.2f}")
+    lineas.append("  " + "─" * 45)
+    lineas.append(f"  {'TOTAL A PAGAR':<34} ${total:>9,.2f}")
     return "\n".join(lineas)
 
 

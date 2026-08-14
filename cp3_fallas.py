@@ -44,7 +44,14 @@ SUB_ESCENARIO = "a_sin_atrapar"  # "a_sin_atrapar" | "b_atrapada" | "c_sin_limit
 MODELO = "openai/gpt-oss-120b"
 MODELO_EMBEDDINGS = "gemini-embedding-001"
 DIMENSIONES = 768
-UMBRAL_SIMILITUD = 0.62
+# Si el mejor fragmento no llega a este parecido, decimos que no sabemos.
+# El número está medido, no adivinado: con 10 preguntas dentro del corpus y 8 fuera,
+# las de dentro puntuaron entre 0.718 y 0.813, y las claramente ajenas por debajo de
+# 0.66. En medio quedan las preguntas que SUENAN a Instituto pero no están escritas
+# en ningún documento ("¿tienen convenio con la UNAM?" da 0.714). Ningún umbral las
+# separa bien; preferimos dejarlas pasar y que el modelo, que ve la fuente y el score
+# de cada fragmento, diga que eso no está documentado.
+UMBRAL_SIMILITUD = 0.68
 
 # Precio público de openai/gpt-oss-120b en Groq, por millón de tokens.
 PRECIO_ENTRADA = 0.15
@@ -59,12 +66,23 @@ MAX_VUELTAS = 4
 cliente = Groq(api_key=os.environ["GROQ_API_KEY"])
 cliente_gemini = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-INSTRUCCIONES = (
+INSTRUCCIONES_BASE = (
     "Eres el asistente del Instituto Nébula. Respondes preguntas sobre cursos, precios, "
     "becas y disponibilidad. Usa siempre las herramientas: nunca inventes precios, "
-    "requisitos ni cupos. Si una herramienta falla, vuelve a intentarlo. "
+    "requisitos ni cupos. Si algún dato no lo logras obtener, entrega los que sí "
+    "conseguiste y di claramente cuál te faltó. "
     "Responde en español, de forma breve y concreta."
 )
+
+# Esta frase es la que convierte el escenario "b" en el "c". No es un detalle:
+# es UNA LÍNEA de prompt, escrita con toda la buena intención, la que hace que el
+# agente insista para siempre cuando el servicio nunca se recupera.
+INSISTIR = " Si una herramienta falla, vuelve a intentarlo hasta obtener el dato."
+
+if SUB_ESCENARIO in ("c_sin_limite", "d_con_limite"):
+    INSTRUCCIONES = INSTRUCCIONES_BASE + INSISTIR
+else:
+    INSTRUCCIONES = INSTRUCCIONES_BASE
 
 PREGUNTA = "¿Todavía hay lugar en el NBL-204 y cuánto me sale en línea?"
 
@@ -143,7 +161,7 @@ def calcular_costo(codigo_curso, modalidad, tipo_beca=None):
 
     lineas = [
         f"{codigo} — {curso['nombre']} ({etiqueta_modalidad})",
-        f"  Precio base            ${base:>9,.2f}",
+        f"  {'Precio base':<34} ${base:>9,.2f}",
     ]
 
     descuento = 0.0
@@ -159,19 +177,17 @@ def calcular_costo(codigo_curso, modalidad, tipo_beca=None):
             )
         else:
             descuento = base * beca["porcentaje"]
-            lineas.append(
-                f"  {beca['nombre']} ({beca['porcentaje']:.0%})".ljust(25)
-                + f"-${descuento:>9,.2f}"
-            )
+            etiqueta_beca = f"{beca['nombre']} ({beca['porcentaje']:.0%})"
+            lineas.append(f"  {etiqueta_beca:<34}-${descuento:>9,.2f}")
 
     subtotal = base - descuento
     impuesto = subtotal * IVA
     total = subtotal + impuesto
 
-    lineas.append(f"  Subtotal               ${subtotal:>9,.2f}")
-    lineas.append(f"  IVA ({IVA:.0%})               ${impuesto:>9,.2f}")
-    lineas.append("  " + "─" * 31)
-    lineas.append(f"  TOTAL A PAGAR          ${total:>9,.2f}")
+    lineas.append(f"  {'Subtotal':<34} ${subtotal:>9,.2f}")
+    lineas.append(f"  {f'IVA ({IVA:.0%})':<34} ${impuesto:>9,.2f}")
+    lineas.append("  " + "─" * 45)
+    lineas.append(f"  {'TOTAL A PAGAR':<34} ${total:>9,.2f}")
     return "\n".join(lineas)
 
 
@@ -467,6 +483,12 @@ elif se_acabaron_las_vueltas and SUB_ESCENARIO == "d_con_limite":
     tokens_salida += respuesta.usage.completion_tokens
     costo = tokens_entrada / 1e6 * PRECIO_ENTRADA + tokens_salida / 1e6 * PRECIO_SALIDA
     contenido_final = respuesta.choices[0].message.content
+
+elif se_acabaron_las_vueltas:
+    # Red de seguridad: en los escenarios "a" y "b" no deberíamos llegar aquí.
+    # Si llegamos, es que el agente se cicló y conviene verlo, no quedarnos callados.
+    print()
+    print(f"--- Tocó el corte de emergencia de {limite} vueltas sin dar una respuesta. ---")
 
 if contenido_final:
     print("RESPUESTA FINAL:\n")
